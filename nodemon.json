@@ -1,0 +1,22 @@
+{
+    "watch": [
+      "server.js",
+      "scripts/",
+      "public/"
+    ],
+    "ext": "js,html,css",
+    "ignore": [
+      "node_modules/",
+      "uploads/",
+      "logs/",
+      "*.db",
+      "*.db-journal"
+    ],
+    "delay": 500,
+    "events": {
+      "restart": "echo '🔄 Server restarted due to file changes'"
+    },
+    "env": {
+      "NODE_ENV": "development"
+    }
+  }
