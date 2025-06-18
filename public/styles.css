@@ -805,10 +805,11 @@ body {
 
 /* Item Details Modal */
 .item-details-modal .modal-content {
-  max-width: 90vw;
-  width: 1000px;
-  max-height: 90vh;
-  padding: 0;
+    width: -webkit-fill-available;
+    padding: 0;
+    height: 100%;
+    max-width: none;
+    max-height: none;
 }
 
 .item-details-content {
@@ -855,12 +856,15 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-xl);
+  display: flex;
 }
 
 .item-details-main {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2xl);
+    display: flex;
+    align-items: flex-start;
+    gap: 17px;
+    flex: 1 0 0;
+    align-self: stretch;
 }
 
 .item-images {
@@ -872,7 +876,7 @@ body {
 .single-image img,
 .main-image img {
   width: 100%;
-  max-height: 400px;
+  max-height: none;
   object-fit: contain;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-secondary);
@@ -883,6 +887,21 @@ body {
 .single-image img:hover,
 .main-image img:hover {
   transform: scale(1.02);
+}
+
+.item-images{
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    flex: 1 0 0;
+}
+.image-gallery {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 21px;
 }
 
 .image-thumbnails {
