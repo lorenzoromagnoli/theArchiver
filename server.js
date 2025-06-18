@@ -9,6 +9,11 @@ const cors = require('cors');
 const WebSocket = require('ws');
 const http = require('http');
 
+// NEW: Dependencies for URL image extraction
+const axios = require('axios');
+const cheerio = require('cheerio');
+const { URL } = require('url');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -57,6 +62,207 @@ if (!fs.existsSync('uploads')) {
 // SQLite Database Setup
 const db = new sqlite3.Database('./team_archive.db');
 
+// Enhanced URL image extraction with better debugging
+// Replace the extractImageFromUrl function in your server.js
+
+async function extractImageFromUrl(url) {
+    try {
+        console.log(`🔍 Starting image extraction for: ${url}`);
+        
+        // Validate URL
+        const parsedUrl = new URL(url);
+        console.log(`✅ URL parsed successfully: ${parsedUrl.origin}`);
+        
+        // Enhanced request with better headers and error handling
+        const response = await axios.get(url, {
+            timeout: 15000, // Increased timeout
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            },
+            maxRedirects: 10,
+            validateStatus: function (status) {
+                return status < 400; // Accept any status code less than 400
+            }
+        });
+
+        console.log(`📡 Response received: ${response.status} ${response.statusText}`);
+        console.log(`📄 Content-Type: ${response.headers['content-type']}`);
+        console.log(`📊 Content length: ${response.data.length} characters`);
+
+        const $ = cheerio.load(response.data);
+        let imageUrl = null;
+        const foundImages = [];
+
+        // 1. Try Open Graph images (highest priority)
+        console.log('🔍 Checking Open Graph images...');
+        const ogImages = [
+            $('meta[property="og:image"]').attr('content'),
+            $('meta[property="og:image:url"]').attr('content'),
+            $('meta[property="og:image:secure_url"]').attr('content')
+        ].filter(Boolean);
+        
+        if (ogImages.length > 0) {
+            imageUrl = ogImages[0];
+            foundImages.push(`OG: ${imageUrl}`);
+            console.log(`✅ Found Open Graph image: ${imageUrl}`);
+        }
+
+        // 2. Try Twitter Card images
+        if (!imageUrl) {
+            console.log('🔍 Checking Twitter Card images...');
+            const twitterImages = [
+                $('meta[name="twitter:image"]').attr('content'),
+                $('meta[name="twitter:image:src"]').attr('content'),
+                $('meta[property="twitter:image"]').attr('content')
+            ].filter(Boolean);
+            
+            if (twitterImages.length > 0) {
+                imageUrl = twitterImages[0];
+                foundImages.push(`Twitter: ${imageUrl}`);
+                console.log(`✅ Found Twitter Card image: ${imageUrl}`);
+            }
+        }
+
+        // 3. Try to find large images in the page
+        if (!imageUrl) {
+            console.log('🔍 Scanning page for large images...');
+            const images = $('img');
+            console.log(`📷 Found ${images.length} img tags on page`);
+            
+            const candidateImages = [];
+            
+            images.each((i, img) => {
+                const $img = $(img);
+                const src = $img.attr('src') || $img.attr('data-src') || $img.attr('data-lazy-src');
+                const width = parseInt($img.attr('width')) || 0;
+                const height = parseInt($img.attr('height')) || 0;
+                const alt = $img.attr('alt') || '';
+                
+                if (src) {
+                    candidateImages.push({
+                        src,
+                        width,
+                        height,
+                        alt,
+                        area: width * height
+                    });
+                }
+            });
+            
+            console.log(`📊 Found ${candidateImages.length} candidate images`);
+            
+            // Sort by area (largest first) and prioritize images with meaningful dimensions
+            candidateImages.sort((a, b) => {
+                // Prioritize images with explicit dimensions and large area
+                if (a.area > 40000 && b.area <= 40000) return -1;
+                if (b.area > 40000 && a.area <= 40000) return 1;
+                return b.area - a.area;
+            });
+            
+            // Log top candidates
+            candidateImages.slice(0, 5).forEach((img, i) => {
+                console.log(`📷 Candidate ${i + 1}: ${img.src} (${img.width}x${img.height}, area: ${img.area})`);
+            });
+            
+            // Select the best candidate
+            if (candidateImages.length > 0) {
+                const bestImage = candidateImages[0];
+                if (bestImage.area >= 10000 || (bestImage.width >= 200 || bestImage.height >= 200)) {
+                    imageUrl = bestImage.src;
+                    foundImages.push(`Large image: ${imageUrl} (${bestImage.width}x${bestImage.height})`);
+                    console.log(`✅ Selected large image: ${imageUrl}`);
+                }
+            }
+        }
+
+        // 4. Try favicon as last resort
+        if (!imageUrl) {
+            console.log('🔍 Looking for favicon...');
+            const favicons = [
+                $('link[rel="apple-touch-icon"]').attr('href'),
+                $('link[rel="apple-touch-icon-precomposed"]').attr('href'),
+                $('link[rel="icon"][sizes="192x192"]').attr('href'),
+                $('link[rel="icon"][sizes="180x180"]').attr('href'),
+                $('link[rel="shortcut icon"]').attr('href'),
+                $('link[rel="icon"]').attr('href')
+            ].filter(Boolean);
+            
+            if (favicons.length > 0) {
+                imageUrl = favicons[0];
+                foundImages.push(`Favicon: ${imageUrl}`);
+                console.log(`✅ Found favicon: ${imageUrl}`);
+            }
+        }
+
+        // Convert relative URLs to absolute
+        if (imageUrl) {
+            const originalUrl = imageUrl;
+            
+            if (imageUrl.startsWith('//')) {
+                imageUrl = parsedUrl.protocol + imageUrl;
+            } else if (imageUrl.startsWith('/')) {
+                imageUrl = parsedUrl.origin + imageUrl;
+            } else if (!imageUrl.startsWith('http')) {
+                // Handle relative URLs
+                imageUrl = new URL(imageUrl, parsedUrl.origin).href;
+            }
+            
+            if (originalUrl !== imageUrl) {
+                console.log(`🔗 Converted relative URL: ${originalUrl} → ${imageUrl}`);
+            }
+        }
+
+        // Extract additional metadata
+        const title = $('title').text().trim() || 
+                     $('meta[property="og:title"]').attr('content') || 
+                     $('meta[name="twitter:title"]').attr('content') || '';
+                     
+        const description = $('meta[name="description"]').attr('content') || 
+                           $('meta[property="og:description"]').attr('content') || 
+                           $('meta[name="twitter:description"]').attr('content') || '';
+
+        const result = {
+            success: true,
+            imageUrl: imageUrl,
+            title: title.slice(0, 200), // Limit title length
+            description: description.slice(0, 300), // Limit description length
+            foundImages: foundImages, // Debug info
+            totalImagesOnPage: $('img').length
+        };
+
+        console.log(`📊 Extraction Summary:`);
+        console.log(`   • Image found: ${!!imageUrl}`);
+        console.log(`   • Title: ${title.slice(0, 50)}...`);
+        console.log(`   • Description: ${description.slice(0, 50)}...`);
+        console.log(`   • Images checked: ${foundImages.length}`);
+        console.log(`   • Total img tags: ${$('img').length}`);
+
+        return result;
+
+    } catch (error) {
+        console.error('❌ Error extracting image from URL:', error.message);
+        console.error('❌ Error details:', {
+            code: error.code,
+            response: error.response?.status,
+            message: error.message
+        });
+        
+        return {
+            success: false,
+            error: error.message,
+            errorCode: error.code,
+            responseStatus: error.response?.status,
+            imageUrl: null
+        };
+    }
+}
+
 // Initialize database tables
 db.serialize(() => {
     // Users table
@@ -80,12 +286,13 @@ db.serialize(() => {
         FOREIGN KEY (created_by) REFERENCES users (id)
     )`);
 
-    // Archive items table
+    // NEW: Updated archive items table with url_image column
     db.run(`CREATE TABLE IF NOT EXISTS archive_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
         description TEXT,
         url TEXT,
+        url_image TEXT,
         tags TEXT,
         collection_id INTEGER,
         created_by INTEGER,
@@ -94,6 +301,15 @@ db.serialize(() => {
         FOREIGN KEY (collection_id) REFERENCES collections (id),
         FOREIGN KEY (created_by) REFERENCES users (id)
     )`);
+
+    // Add url_image column to existing tables (if it doesn't exist)
+    db.run(`ALTER TABLE archive_items ADD COLUMN url_image TEXT`, (err) => {
+        if (err && !err.message.includes('duplicate column name')) {
+            console.error('Error adding url_image column:', err.message);
+        } else if (!err) {
+            console.log('✅ Added url_image column to archive_items table');
+        }
+    });
 
     // Files table
     db.run(`CREATE TABLE IF NOT EXISTS files (
@@ -115,7 +331,7 @@ db.serialize(() => {
         (3, 'Research', '🔍', '#45b7d1'),
         (4, 'Resources', '📎', '#96ceb4')`);
 
-    console.log('Database initialized successfully');
+    console.log('✅ Database initialized successfully');
 });
 
 // File upload configuration
@@ -257,6 +473,28 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ====================================
+// NEW: URL IMAGE EXTRACTION ROUTE
+// ====================================
+
+app.post('/api/extract-url-info', authenticateToken, async (req, res) => {
+    try {
+        const { url } = req.body;
+        
+        if (!url) {
+            return res.status(400).json({ error: 'URL is required' });
+        }
+
+        console.log(`🔗 URL image extraction requested for: ${url}`);
+        const result = await extractImageFromUrl(url);
+        res.json(result);
+        
+    } catch (error) {
+        console.error('❌ Error in extract-url-info endpoint:', error);
+        res.status(500).json({ error: 'Failed to extract URL information' });
+    }
+});
+
+// ====================================
 // COLLECTIONS ROUTES
 // ====================================
 
@@ -299,7 +537,7 @@ app.post('/api/collections', authenticateToken, (req, res) => {
 });
 
 // ====================================
-// ARCHIVE ITEMS ROUTES
+// ARCHIVE ITEMS ROUTES (UPDATED)
 // ====================================
 
 app.get('/api/items', authenticateToken, (req, res) => {
@@ -407,8 +645,11 @@ app.get('/api/items', authenticateToken, (req, res) => {
     });
 });
 
+// NEW: Updated POST route to handle url_image
 app.post('/api/items', authenticateToken, upload.array('files', 5), (req, res) => {
-    const { title, description, url, tags, collection } = req.body;
+    const { title, description, url, url_image, tags, collection } = req.body;
+    
+    console.log('📝 Creating new item:', { title, hasUrlImage: !!url_image, hasFiles: req.files?.length > 0 });
     
     // Get collection ID
     db.get(
@@ -419,19 +660,22 @@ app.post('/api/items', authenticateToken, upload.array('files', 5), (req, res) =
                 return res.status(400).json({ error: 'Invalid collection' });
             }
             
-            // Insert archive item
+            // Insert archive item with url_image
             db.run(
-                'INSERT INTO archive_items (title, description, url, tags, collection_id, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-                [title, description || '', url || '', tags || '', collectionRow.id, req.user.userId],
+                'INSERT INTO archive_items (title, description, url, url_image, tags, collection_id, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [title, description || '', url || '', url_image || '', tags || '', collectionRow.id, req.user.userId],
                 function(err) {
                     if (err) {
+                        console.error('❌ Error inserting item:', err);
                         return res.status(500).json({ error: err.message });
                     }
                     
                     const itemId = this.lastID;
+                    console.log(`✅ Created item with ID: ${itemId}`);
                     
                     // Insert files if any
                     if (req.files && req.files.length > 0) {
+                        console.log(`📁 Processing ${req.files.length} files...`);
                         const fileInserts = req.files.map(file => {
                             return new Promise((resolve, reject) => {
                                 db.run(
@@ -447,10 +691,12 @@ app.post('/api/items', authenticateToken, upload.array('files', 5), (req, res) =
                         
                         Promise.all(fileInserts)
                             .then(() => {
+                                console.log('✅ All files processed successfully');
                                 // Return the created item with files
                                 returnCreatedItem(itemId, res);
                             })
                             .catch(err => {
+                                console.error('❌ Error processing files:', err);
                                 res.status(500).json({ error: 'Failed to save files' });
                             });
                     } else {
@@ -484,19 +730,23 @@ function returnCreatedItem(itemId, res) {
                 'SELECT * FROM files WHERE item_id = ?',
                 [itemId],
                 (err, files) => {
-                    res.status(201).json({
+                    const responseItem = {
                         ...item,
                         tags: item.tags ? item.tags.split(',').map(tag => tag.trim()) : [],
                         files: files || []
-                    });
+                    };
+                    
+                    console.log(`📤 Returning created item: ${item.title} (URL image: ${!!item.url_image})`);
+                    res.status(201).json(responseItem);
                 }
             );
         }
     );
 }
 
+// NEW: Updated PUT route to handle url_image
 app.put('/api/items/:id', authenticateToken, (req, res) => {
-    const { title, description, url, tags, collection } = req.body;
+    const { title, description, url, url_image, tags, collection } = req.body;
     const itemId = req.params.id;
     
     // Get collection ID
@@ -510,9 +760,9 @@ app.put('/api/items/:id', authenticateToken, (req, res) => {
             
             db.run(
                 `UPDATE archive_items 
-                 SET title = ?, description = ?, url = ?, tags = ?, collection_id = ?, updated_at = CURRENT_TIMESTAMP
+                 SET title = ?, description = ?, url = ?, url_image = ?, tags = ?, collection_id = ?, updated_at = CURRENT_TIMESTAMP
                  WHERE id = ? AND created_by = ?`,
-                [title, description || '', url || '', tags || '', collectionRow.id, itemId, req.user.userId],
+                [title, description || '', url || '', url_image || '', tags || '', collectionRow.id, itemId, req.user.userId],
                 function(err) {
                     if (err) {
                         return res.status(500).json({ error: err.message });
@@ -522,6 +772,7 @@ app.put('/api/items/:id', authenticateToken, (req, res) => {
                         return res.status(404).json({ error: 'Item not found or unauthorized' });
                     }
                     
+                    console.log(`✅ Updated item ${itemId} with URL image: ${!!url_image}`);
                     // Return updated item
                     returnCreatedItem(itemId, res);
                 }
@@ -596,7 +847,7 @@ app.delete('/api/items/:id', authenticateToken, (req, res) => {
 });
 
 // ====================================
-// EXPORT ROUTES
+// EXPORT ROUTES (UPDATED)
 // ====================================
 
 app.get('/api/export', authenticateToken, (req, res) => {
@@ -619,8 +870,9 @@ app.get('/api/export', authenticateToken, (req, res) => {
             const exportData = {
                 exportDate: new Date().toISOString(),
                 exportedBy: req.user.username,
-                version: '1.0',
+                version: '1.1', // Updated version for URL image support
                 itemCount: items.length,
+                features: ['file_uploads', 'url_images', 'collections', 'tags'], // NEW: Feature list
                 items: items.map(item => ({
                     ...item,
                     tags: item.tags ? item.tags.split(',').map(tag => tag.trim()) : []
@@ -649,6 +901,7 @@ app.get('/health', (req, res) => {
         } else {
             res.json({ 
                 status: 'healthy',
+                features: ['url_image_extraction', 'file_uploads', 'live_reload'], // NEW: Feature list
                 timestamp: new Date().toISOString(),
                 uptime: process.uptime()
             });
@@ -684,13 +937,26 @@ app.use('*', (req, res) => {
 // ====================================
 
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Database: ${path.resolve('./team_archive.db')}`);
-    console.log(`Uploads: ${path.resolve('./uploads')}`);
+    console.log(`🚀 Team Creative Archive server running on port ${PORT}`);
+    console.log(`📁 Database: ${path.resolve('./team_archive.db')}`);
+    console.log(`📂 Uploads: ${path.resolve('./uploads')}`);
+    console.log(`🌐 Access at: http://localhost:${PORT}`);
+    console.log(`✨ NEW: URL image extraction enabled!`);
     
     if (isDevelopment) {
         console.log('🔄 Live reload enabled');
         console.log('💡 Use "npm run dev:watch" for full live reload experience');
+    }
+    
+    console.log('');
+    console.log('🎯 Features enabled:');
+    console.log('   • 📸 URL image extraction');
+    console.log('   • 📁 File uploads');
+    console.log('   • 👥 Team collaboration');
+    console.log('   • 🔍 Full-text search');
+    console.log('   • 📤 Data export');
+    if (isDevelopment) {
+        console.log('   • 🔄 Live reload');
     }
 });
 

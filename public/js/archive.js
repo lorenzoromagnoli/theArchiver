@@ -6,10 +6,14 @@ let selectedFiles = [];
 let isDataLoading = false;
 let dataLoadPromise = null;
 
+// Auto-save variables
+let autoSaveTimeout = null;
+let isAutoSaving = false;
+let hasUnsavedChanges = false;
+
 // Make functions globally available
 window.showItemDetails = showItemDetails;
 window.closeItemDetails = closeItemDetails;
-window.editItem = editItem;
 window.deleteItem = deleteItem;
 window.selectCollection = selectCollection;
 window.showAddItemModal = showAddItemModal;
@@ -80,6 +84,7 @@ async function loadInitialDataSequential() {
 async function loadArchiveItems() {
     try {
         console.log('🔄 Loading archive items...');
+        console.log('🔍 Current collection:', currentCollection);
         
         // Ensure we have a fresh state
         const grid = document.getElementById('archive-grid');
@@ -104,11 +109,35 @@ async function loadArchiveItems() {
             </div>
         `;
         
+        console.log('📡 BEFORE MAPPING - currentCollection:', currentCollection);
+        
         const params = {};
         
+        // EXPLICIT COLLECTION MAPPING - THIS SHOULD SHOW IN CONSOLE
         if (currentCollection !== 'all') {
-            params.collection = currentCollection;
+            console.log('🔧 MAPPING LOGIC EXECUTING for:', currentCollection);
+            
+            // Direct mapping to ensure it works
+            if (currentCollection === 'inspiration') {
+                params.collection = 'Inspiration';
+                console.log('✅ MAPPED inspiration → Inspiration');
+            } else if (currentCollection === 'design') {
+                params.collection = 'Design';
+                console.log('✅ MAPPED design → Design');
+            } else if (currentCollection === 'research') {
+                params.collection = 'Research';
+                console.log('✅ MAPPED research → Research');
+            } else if (currentCollection === 'resources') {
+                params.collection = 'Resources';
+                console.log('✅ MAPPED resources → Resources');
+            } else {
+                // Fallback
+                params.collection = currentCollection.charAt(0).toUpperCase() + currentCollection.slice(1);
+                console.log('⚠️ FALLBACK MAPPING:', currentCollection, '→', params.collection);
+            }
         }
+        
+        console.log('📡 FINAL PARAMS OBJECT:', params);
         
         const searchQuery = document.getElementById('search-input')?.value.trim();
         if (searchQuery) {
@@ -126,6 +155,16 @@ async function loadArchiveItems() {
             try {
                 response = await window.api.getItems(params);
                 console.log('✅ API response received:', response);
+                console.log('📊 Items in response:', response.items?.length || 0);
+                
+                // Debug: Log first few items with their collections
+                if (response.items && response.items.length > 0) {
+                    console.log('🔍 First 3 items and their collections:');
+                    response.items.slice(0, 3).forEach((item, index) => {
+                        console.log(`  ${index + 1}. "${item.title}" - Collection: "${item.collection_name}"`);
+                    });
+                }
+                
                 break; // Success, exit retry loop
             } catch (error) {
                 retryCount++;
@@ -151,12 +190,10 @@ async function loadArchiveItems() {
             
             console.log(`📊 Loaded and sorted ${allItems.length} items chronologically`);
             
-            // Log first few items to verify sorting
+            // Debug: Show what collections we actually have
             if (allItems.length > 0) {
-                console.log('🕒 First 3 items by date:');
-                allItems.slice(0, 3).forEach((item, index) => {
-                    console.log(`  ${index + 1}. ${item.title} - ${new Date(item.created_at).toLocaleString()}`);
-                });
+                const collections = [...new Set(allItems.map(item => item.collection_name))];
+                console.log('📁 Available collections in data:', collections);
             }
         }
         
@@ -205,7 +242,9 @@ async function loadCollections() {
 // ====================================
 
 async function selectCollection(collectionId) {
+    console.log('🎯 selectCollection called with:', collectionId);
     currentCollection = collectionId;
+    console.log('🔄 currentCollection set to:', currentCollection);
     
     // Update active state
     document.querySelectorAll('.collection-item').forEach(item => {
@@ -413,7 +452,13 @@ function createItemHTML(item) {
         <div class="archive-item" data-id="${item.id}">
             <div class="item-header">
                 ${hasFiles && firstFile && firstFile.mimetype && firstFile.mimetype.startsWith('image/') ? 
-                    `<img src="/uploads/${firstFile.filename}" alt="${escapeHtml(item.title)}" onerror="this.style.display='none'; this.parentNode.innerHTML='<div style=\\"font-size: 3rem\\">${collectionIcons[collectionName] || '📄'}</div>'">` :
+                    `<img src="/uploads/${firstFile.filename}" 
+                          alt="${escapeHtml(item.title)}" 
+                          loading="lazy"
+                          onload="this.style.opacity='1'"
+                          onerror="this.style.display='none'; this.parentNode.querySelector('.fallback-icon').style.display='flex'"
+                          style="opacity: 0; transition: opacity 0.3s ease;">
+                     <div class="fallback-icon" style="display: none; font-size: 3rem; width: 100%; height: 100%; align-items: center; justify-content: center; background: linear-gradient(45deg, #667eea, #764ba2); color: white;">${collectionIcons[collectionName] || '📄'}</div>` :
                     `<div style="font-size: 3rem">${collectionIcons[collectionName] || '📄'}</div>`
                 }
                 <div class="item-overlay">
@@ -435,8 +480,7 @@ function createItemHTML(item) {
                     </div>
                     <div class="item-actions">
                         ${item.url ? `<button class="action-btn" onclick="window.open('${escapeHtml(item.url)}', '_blank')" title="Open Link">🔗</button>` : ''}
-                        <button class="action-btn" onclick="window.showItemDetails(${item.id})" title="View Details">👁️ View</button>
-                        <button class="action-btn" onclick="window.editItem(${item.id})" title="Edit">✏️</button>
+                        <button class="action-btn" onclick="window.showItemDetails(${item.id})" title="View & Edit">✏️ Edit</button>
                         <button class="action-btn" onclick="window.deleteItem(${item.id})" title="Delete">🗑️</button>
                     </div>
                 </div>
@@ -580,10 +624,31 @@ function populateItemDetailsModal(modal, item) {
     // Store current item ID for actions
     modal.dataset.itemId = item.id;
     
-    // Basic info
-    document.getElementById('details-title').textContent = item.title || 'Untitled';
-    document.getElementById('details-description').textContent = item.description || 'No description provided.';
-    document.getElementById('details-collection').textContent = item.collection_name || 'Unknown';
+    // Basic info - now editable
+    document.getElementById('details-title').innerHTML = `
+        <input type="text" 
+               id="edit-title" 
+               value="${escapeHtml(item.title || 'Untitled')}"
+               class="inline-edit-input title-input"
+               placeholder="Item title">
+    `;
+    
+    document.getElementById('details-description').innerHTML = `
+        <textarea id="edit-description" 
+                  class="inline-edit-textarea"
+                  placeholder="Add a description..."
+                  rows="4">${escapeHtml(item.description || '')}</textarea>
+    `;
+    
+    document.getElementById('details-collection').innerHTML = `
+        <select id="edit-collection" class="inline-edit-select">
+            <option value="Inspiration" ${item.collection_name === 'Inspiration' ? 'selected' : ''}>✨ Inspiration</option>
+            <option value="Design" ${item.collection_name === 'Design' ? 'selected' : ''}>🎨 Design</option>
+            <option value="Research" ${item.collection_name === 'Research' ? 'selected' : ''}>🔍 Research</option>
+            <option value="Resources" ${item.collection_name === 'Resources' ? 'selected' : ''}>📎 Resources</option>
+        </select>
+    `;
+    
     document.getElementById('details-author').textContent = item.author_username || 'Unknown';
     document.getElementById('details-created').textContent = new Date(item.created_at).toLocaleString();
     
@@ -596,29 +661,32 @@ function populateItemDetailsModal(modal, item) {
         updatedItem.style.display = 'none';
     }
     
-    // Tags
+    // Tags - editable
     const tagsSection = document.getElementById('details-tags-section');
     const tagsContainer = document.getElementById('details-tags');
     const tags = Array.isArray(item.tags) ? item.tags : 
                  (typeof item.tags === 'string' ? item.tags.split(',').map(t => t.trim()) : []);
     
-    if (tags.length > 0) {
-        tagsContainer.innerHTML = tags.map(tag => `<span class="detail-tag">${escapeHtml(tag)}</span>`).join('');
-        tagsSection.style.display = 'block';
-    } else {
-        tagsSection.style.display = 'none';
-    }
+    tagsContainer.innerHTML = `
+        <input type="text" 
+               id="edit-tags" 
+               value="${tags.join(', ')}"
+               class="inline-edit-input"
+               placeholder="Add tags separated by commas">
+    `;
+    tagsSection.style.display = 'block';
     
-    // URL
+    // URL - editable
     const urlSection = document.getElementById('details-url-section');
-    const urlLink = document.getElementById('details-url');
-    if (item.url) {
-        urlLink.href = item.url;
-        urlLink.textContent = item.url;
-        urlSection.style.display = 'block';
-    } else {
-        urlSection.style.display = 'none';
-    }
+    const urlContainer = document.getElementById('details-url');
+    urlContainer.innerHTML = `
+        <input type="url" 
+               id="edit-url" 
+               value="${escapeHtml(item.url || '')}"
+               class="inline-edit-input"
+               placeholder="https://example.com">
+    `;
+    urlSection.style.display = 'block';
     
     // Images
     populateItemImages(item);
@@ -629,11 +697,16 @@ function populateItemDetailsModal(modal, item) {
     // Update footer buttons
     const footer = modal.querySelector('.item-details-footer');
     footer.innerHTML = `
-        <button class="btn btn-secondary" onclick="editItem(${item.id})">✏️ Edit</button>
+        <div class="auto-save-status" id="auto-save-status">
+            <span class="save-indicator">💾</span>
+            <span class="save-text">Changes saved automatically</span>
+        </div>
         <button class="btn btn-secondary" onclick="deleteItem(${item.id})" style="color: #dc3545;">🗑️ Delete</button>
-        ${item.url ? `<button class="btn btn-secondary" onclick="window.open('${escapeHtml(item.url)}', '_blank')">🔗 Open Link</button>` : ''}
-        <button class="btn btn-primary" onclick="closeItemDetails()">Close</button>
+        <button class="btn btn-primary" onclick="closeItemDetails()">Done</button>
     `;
+    
+    // Set up auto-save functionality
+    setupInlineEditAutoSave(item.id);
 }
 
 function populateItemImages(item) {
@@ -691,8 +764,14 @@ function populateItemImages(item) {
             <div class="single-image">
                 <img src="/uploads/${image.filename}" 
                      alt="${escapeHtml(item.title)}" 
+                     loading="lazy"
                      onclick="openImageFullscreen('${image.filename}', '${escapeHtml(item.title)}')"
-                     onerror="this.parentNode.innerHTML='<div class=\\"image-error\\">Failed to load image</div>'">
+                     onload="this.style.opacity='1'"
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='block'"
+                     style="opacity: 0; transition: opacity 0.3s ease;">
+                <div class="image-error" style="display: none; padding: 40px; text-align: center; color: #6c757d;">
+                    📷 Image failed to load
+                </div>
                 <div class="image-caption">${escapeHtml(image.original_name)}</div>
             </div>
         `;
@@ -704,6 +783,9 @@ function populateItemImages(item) {
                     <img id="main-gallery-image" 
                          src="/uploads/${imageFiles[0].filename}" 
                          alt="${escapeHtml(item.title)}"
+                         loading="lazy"
+                         onload="this.style.opacity='1'"
+                         style="opacity: 0; transition: opacity 0.3s ease;"
                          onclick="openImageFullscreen('${imageFiles[0].filename}', '${escapeHtml(item.title)}')">
                     <div class="image-caption" id="main-image-caption">${escapeHtml(imageFiles[0].original_name)}</div>
                 </div>
@@ -712,6 +794,9 @@ function populateItemImages(item) {
                         <img src="/uploads/${image.filename}" 
                              alt="${escapeHtml(image.original_name)}"
                              class="thumbnail ${index === 0 ? 'active' : ''}"
+                             loading="lazy"
+                             onload="this.style.opacity='1'"
+                             style="opacity: 0; transition: opacity 0.3s ease;"
                              onclick="switchGalleryImage('${image.filename}', '${escapeHtml(image.original_name)}', this)">
                     `).join('')}
                 </div>
@@ -820,13 +905,231 @@ function closeFullscreenImage() {
 }
 
 // ====================================
+// INLINE EDITING AUTO-SAVE
+// ====================================
+
+function setupInlineEditAutoSave(itemId) {
+    console.log('🔧 Setting up auto-save for item:', itemId);
+    
+    // Get all editable elements
+    const editableElements = [
+        'edit-title',
+        'edit-description', 
+        'edit-collection',
+        'edit-tags',
+        'edit-url'
+    ];
+    
+    // Clear any existing timeout
+    if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+        autoSaveTimeout = null;
+    }
+    
+    // Set up event listeners for each editable element
+    editableElements.forEach(elementId => {
+        const element = document.getElementById(elementId);
+        if (element) {
+            // Add input event listener
+            element.addEventListener('input', () => {
+                onFieldChange(itemId);
+            });
+            
+            // Add blur event listener for immediate save on focus loss
+            element.addEventListener('blur', () => {
+                if (hasUnsavedChanges) {
+                    saveChangesNow(itemId);
+                }
+            });
+            
+            // Add keyboard shortcuts
+            element.addEventListener('keydown', (e) => {
+                // Ctrl/Cmd + S to save immediately
+                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                    e.preventDefault();
+                    saveChangesNow(itemId);
+                }
+                // Escape to revert changes (could be implemented)
+                if (e.key === 'Escape') {
+                    element.blur();
+                }
+            });
+        }
+    });
+    
+    // Update save status
+    updateSaveStatus('ready');
+}
+
+function onFieldChange(itemId) {
+    hasUnsavedChanges = true;
+    updateSaveStatus('editing');
+    
+    // Clear existing timeout
+    if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+    }
+    
+    // Set new timeout for 10 seconds of inactivity
+    autoSaveTimeout = setTimeout(() => {
+        saveChangesNow(itemId);
+    }, 10000); // 10 seconds
+    
+    console.log('📝 Field changed, auto-save scheduled in 10s');
+}
+
+async function saveChangesNow(itemId) {
+    if (isAutoSaving || !hasUnsavedChanges) {
+        return;
+    }
+    
+    console.log('💾 Auto-saving changes for item:', itemId);
+    isAutoSaving = true;
+    updateSaveStatus('saving');
+    
+    // Clear timeout
+    if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+        autoSaveTimeout = null;
+    }
+    
+    try {
+        // Collect current values from editable fields
+        const updatedData = {
+            title: document.getElementById('edit-title')?.value?.trim() || '',
+            description: document.getElementById('edit-description')?.value?.trim() || '',
+            collection: document.getElementById('edit-collection')?.value || '',
+            tags: document.getElementById('edit-tags')?.value?.trim() || '',
+            url: document.getElementById('edit-url')?.value?.trim() || ''
+        };
+        
+        console.log('📤 Sending update:', updatedData);
+        
+        // Make API call to update item
+        const updatedItem = await window.api.request(`/items/${itemId}`, {
+            method: 'PUT',
+            body: JSON.stringify(updatedData)
+        });
+        
+        // Update local array
+        const index = allItems.findIndex(item => item.id == itemId);
+        if (index !== -1) {
+            allItems[index] = updatedItem;
+        }
+        
+        // Update the grid view (but keep modal open)
+        renderItems();
+        updateCollectionCounts();
+        
+        // Update "Updated" timestamp in modal
+        const updatedElement = document.getElementById('details-updated');
+        const updatedItemElement = document.getElementById('details-updated-item');
+        if (updatedElement && updatedItemElement) {
+            updatedElement.textContent = new Date().toLocaleString();
+            updatedItemElement.style.display = 'block';
+        }
+        
+        hasUnsavedChanges = false;
+        updateSaveStatus('saved');
+        
+        console.log('✅ Auto-save successful');
+        
+    } catch (error) {
+        console.error('❌ Auto-save failed:', error);
+        updateSaveStatus('error');
+        
+        // Show user-friendly error
+        showNotification('Failed to save changes. Please try again.', 'error');
+    } finally {
+        isAutoSaving = false;
+    }
+}
+
+function updateSaveStatus(status) {
+    const statusElement = document.getElementById('auto-save-status');
+    if (!statusElement) return;
+    
+    const indicator = statusElement.querySelector('.save-indicator');
+    const text = statusElement.querySelector('.save-text');
+    
+    if (!indicator || !text) return;
+    
+    switch (status) {
+        case 'ready':
+            indicator.textContent = '📝';
+            text.textContent = 'Ready to edit';
+            statusElement.className = 'auto-save-status ready';
+            break;
+            
+        case 'editing':
+            indicator.textContent = '✏️';
+            text.textContent = 'Editing... (auto-save in 10s)';
+            statusElement.className = 'auto-save-status editing';
+            break;
+            
+        case 'saving':
+            indicator.textContent = '💾';
+            text.textContent = 'Saving changes...';
+            statusElement.className = 'auto-save-status saving';
+            break;
+            
+        case 'saved':
+            indicator.textContent = '✅';
+            text.textContent = 'Changes saved automatically';
+            statusElement.className = 'auto-save-status saved';
+            
+            // Reset to ready after 3 seconds
+            setTimeout(() => {
+                updateSaveStatus('ready');
+            }, 3000);
+            break;
+            
+        case 'error':
+            indicator.textContent = '❌';
+            text.textContent = 'Failed to save changes';
+            statusElement.className = 'auto-save-status error';
+            
+            // Reset to ready after 5 seconds
+            setTimeout(() => {
+                updateSaveStatus('ready');
+            }, 5000);
+            break;
+    }
+}
+
+// ====================================
 // MODAL MANAGEMENT
 // ====================================
 
 function closeItemDetails() {
+    // Check for unsaved changes
+    if (hasUnsavedChanges) {
+        const currentItemId = getCurrentItemId();
+        if (currentItemId && confirm('You have unsaved changes. Save before closing?')) {
+            saveChangesNow(currentItemId).then(() => {
+                closeItemDetailsModal();
+            });
+            return;
+        }
+    }
+    
+    closeItemDetailsModal();
+}
+
+function closeItemDetailsModal() {
     const modal = document.getElementById('item-details-modal');
     if (modal) {
         modal.classList.remove('active');
+        
+        // Clean up auto-save
+        if (autoSaveTimeout) {
+            clearTimeout(autoSaveTimeout);
+            autoSaveTimeout = null;
+        }
+        hasUnsavedChanges = false;
+        isAutoSaving = false;
+        
+        console.log('🔒 Modal closed, auto-save cleaned up');
     }
 }
 
@@ -875,51 +1178,6 @@ function downloadFile(filename, originalName) {
     }
 }
 
-function createItemHTML(item) {
-    const timeAgo = formatTimeAgo(new Date(item.created_at));
-    const collectionIcons = {
-        'Inspiration': '✨',
-        'Design': '🎨', 
-        'Research': '🔍',
-        'Resources': '📎'
-    };
-    
-    const hasFiles = item.files && item.files.length > 0;
-    const firstFile = hasFiles ? item.files[0] : null;
-    
-    return `
-        <div class="archive-item" data-id="${item.id}">
-            <div class="item-header">
-                ${hasFiles && firstFile.mimetype.startsWith('image/') ? 
-                    `<img src="/uploads/${firstFile.filename}" alt="${item.title}" onerror="this.style.display='none'; this.parentNode.innerHTML='<div style=\\"font-size: 3rem\\">${collectionIcons[item.collection_name] || '📄'}</div>'">` :
-                    `<div style="font-size: 3rem">${collectionIcons[item.collection_name] || '📄'}</div>`
-                }
-            </div>
-            <div class="item-content">
-                <div class="item-title">${escapeHtml(item.title)}</div>
-                <div class="item-description">${escapeHtml(item.description || '')}</div>
-                ${item.tags && item.tags.length > 0 ? `
-                    <div class="item-tags">
-                        ${item.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}
-                    </div>
-                ` : ''}
-                <div class="item-meta">
-                    <div>
-                        <div>By ${escapeHtml(item.author_username || 'Unknown')}</div>
-                        <div>${timeAgo}</div>
-                    </div>
-                    <div class="item-actions">
-                        ${item.url ? `<button class="action-btn" onclick="window.open('${escapeHtml(item.url)}', '_blank')" title="Open Link">🔗</button>` : ''}
-                        ${hasFiles ? `<button class="action-btn" onclick="viewFiles(${item.id})" title="View Files">📎 ${item.files.length}</button>` : ''}
-                        <button class="action-btn" onclick="editItem(${item.id})" title="Edit">✏️</button>
-                        <button class="action-btn" onclick="deleteItem(${item.id})" title="Delete">🗑️</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
 // ====================================
 // SEARCH FUNCTIONALITY
 // ====================================
@@ -955,7 +1213,15 @@ function showAddItemModal() {
 }
 
 function closeModal(modalId) {
-    document.getElementById(modalId).classList.remove('active');
+    if (!modalId) {
+        console.error('❌ closeModal called without modalId parameter');
+        return;
+    }
+    
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.classList.remove('active');
+    }
 }
 
 // ====================================
@@ -1053,78 +1319,7 @@ async function handleAddItem(event) {
     }
 }
 
-async function editItem(itemId) {
-    const item = allItems.find(item => item.id === itemId);
-    if (!item) return;
-    
-    // Pre-fill form with existing data
-    document.getElementById('item-title').value = item.title;
-    document.getElementById('item-description').value = item.description || '';
-    document.getElementById('item-collection').value = item.collection_name;
-    document.getElementById('item-tags').value = item.tags ? item.tags.join(', ') : '';
-    document.getElementById('item-url').value = item.url || '';
-    
-    // Clear files (editing files not implemented in this simple version)
-    document.getElementById('item-files').value = '';
-    selectedFiles = [];
-    updateFilesList();
-    
-    // Show modal
-    showAddItemModal();
-    
-    // Change form behavior to update
-    document.getElementById('add-item-form').onsubmit = async function(event) {
-        event.preventDefault();
-        
-        const submitBtn = event.target.querySelector('button[type="submit"]');
-        const originalText = submitBtn.textContent;
-        
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Updating...';
-        
-        try {
-            // Note: This is a simplified update - in a real app you'd handle file updates
-            const formData = new FormData();
-            formData.append('title', document.getElementById('item-title').value.trim());
-            formData.append('description', document.getElementById('item-description').value.trim());
-            formData.append('collection', document.getElementById('item-collection').value);
-            formData.append('tags', document.getElementById('item-tags').value.trim());
-            formData.append('url', document.getElementById('item-url').value.trim());
-            
-            // For simplicity, we'll use a JSON request for updates
-            const updateData = {
-                title: document.getElementById('item-title').value.trim(),
-                description: document.getElementById('item-description').value.trim(),
-                collection: document.getElementById('item-collection').value,
-                tags: document.getElementById('item-tags').value.trim(),
-                url: document.getElementById('item-url').value.trim()
-            };
-            
-            const updatedItem = await window.api.request(`/items/${itemId}`, {
-                method: 'PUT',
-                body: JSON.stringify(updateData)
-            });
-            
-            // Update local array
-            const index = allItems.findIndex(item => item.id === itemId);
-            if (index !== -1) {
-                allItems[index] = updatedItem;
-            }
-            
-            renderItems();
-            updateCollectionCounts();
-            closeModal('add-item-modal');
-            showNotification(`Updated "${updatedItem.title}"!`);
-            
-        } catch (error) {
-            console.error('Failed to update item:', error);
-            showNotification('Failed to update item. Please try again.', 'error');
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.textContent = originalText;
-        }
-    };
-}
+// editItem function removed - now using inline editing
 
 async function deleteItem(itemId) {
     const item = allItems.find(item => item.id === itemId);
@@ -1148,15 +1343,6 @@ async function deleteItem(itemId) {
         console.error('Failed to delete item:', error);
         showNotification('Failed to delete item. Please try again.', 'error');
     }
-}
-
-function viewFiles(itemId) {
-    const item = allItems.find(item => item.id === itemId);
-    if (!item || !item.files || item.files.length === 0) return;
-    
-    // Simple file viewer - just open first file
-    const firstFile = item.files[0];
-    window.open(`/uploads/${firstFile.filename}`, '_blank');
 }
 
 // ====================================

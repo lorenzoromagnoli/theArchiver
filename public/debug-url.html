@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Image Extraction Test</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+        .test-button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        .test-button:hover {
+            background: #2980b9;
+        }
+        .results {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+        }
+        .success {
+            border-left-color: #27ae60;
+            background: #d5f4e6;
+        }
+        .error {
+            border-left-color: #e74c3c;
+            background: #fadbd8;
+        }
+        .preview-image {
+            max-width: 200px;
+            max-height: 200px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .debug-info {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-top: 15px;
+            white-space: pre-wrap;
+        }
+        .test-urls {
+            margin: 20px 0;
+        }
+        .test-url {
+            display: inline-block;
+            background: #e9ecef;
+            padding: 5px 10px;
+            margin: 3px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 12px;
+            border: 1px solid #dee2e6;
+        }
+        .test-url:hover {
+            background: #007bff;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🔍 URL Image Extraction Test</h1>
+        <p>Test the URL image extraction functionality with various URLs to debug issues.</p>
+        
+        <input type="url" id="testUrl" class="test-input" placeholder="Enter URL to test (e.g., https://github.com/facebook/react)">
+        
+        <button onclick="testExtraction()" class="test-button">🚀 Test Extraction</button>
+        <button onclick="clearResults()" class="test-button" style="background: #6c757d;">Clear Results</button>
+        
+        <div class="test-urls">
+            <strong>Quick test URLs:</strong><br>
+            <span class="test-url" onclick="setTestUrl('https://github.com/facebook/react')">GitHub - React</span>
+            <span class="test-url" onclick="setTestUrl('https://dribbble.com/shots/18033549-3D-Illustration-Icon-Set')">Dribbble Shot</span>
+            <span class="test-url" onclick="setTestUrl('https://medium.com/@user/article-title')">Medium Article</span>
+            <span class="test-url" onclick="setTestUrl('https://www.behance.net/gallery/123456789/Project-Name')">Behance Project</span>
+            <span class="test-url" onclick="setTestUrl('https://www.figma.com/community/file/123456789')">Figma File</span>
+            <span class="test-url" onclick="setTestUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ')">YouTube Video</span>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function setTestUrl(url) {
+            document.getElementById('testUrl').value = url;
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        async function testExtraction() {
+            const url = document.getElementById('testUrl').value.trim();
+            const resultsDiv = document.getElementById('results');
+            
+            if (!url) {
+                alert('Please enter a URL to test');
+                return;
+            }
+
+            resultsDiv.innerHTML = `
+                <div class="results">
+                    <h3>🔄 Testing: ${url}</h3>
+                    <p>Making request to server...</p>
+                </div>
+            `;
+
+            try {
+                const response = await fetch('/api/extract-url-info', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    },
+                    body: JSON.stringify({ url })
+                });
+
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('Full response data:', data);
+
+                displayResults(data, url);
+
+            } catch (error) {
+                console.error('Test error:', error);
+                resultsDiv.innerHTML = `
+                    <div class="results error">
+                        <h3>❌ Error Testing: ${url}</h3>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                        <div class="debug-info">
+Error Details:
+- Message: ${error.message}
+- Stack: ${error.stack}
+
+Check browser network tab and server logs for more details.
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function displayResults(data, url) {
+            const resultsDiv = document.getElementById('results');
+            const isSuccess = data.success && data.imageUrl;
+            
+            let html = `
+                <div class="results ${isSuccess ? 'success' : 'error'}">
+                    <h3>${isSuccess ? '✅' : '❌'} Results for: ${url}</h3>
+            `;
+
+            if (isSuccess) {
+                html += `
+                    <p><strong>✅ Image Found:</strong> ${data.imageUrl}</p>
+                    <img src="${data.imageUrl}" alt="Extracted image" class="preview-image" 
+                         onerror="this.style.display='none'; console.log('Failed to load:', this.src);">
+                    
+                    ${data.title ? `<p><strong>📰 Title:</strong> ${data.title}</p>` : ''}
+                    ${data.description ? `<p><strong>📝 Description:</strong> ${data.description}</p>` : ''}
+                `;
+            } else {
+                html += `
+                    <p><strong>❌ No Image Found</strong></p>
+                    ${data.error ? `<p><strong>Error:</strong> ${data.error}</p>` : ''}
+                `;
+            }
+
+            // Add debug information
+            html += `
+                <div class="debug-info">
+Debug Information:
+- Success: ${data.success}
+- Image URL: ${data.imageUrl || 'None'}
+- Title: ${data.title || 'None'}
+- Description: ${data.description || 'None'}
+- Error: ${data.error || 'None'}
+- Error Code: ${data.errorCode || 'None'}
+- Response Status: ${data.responseStatus || 'None'}
+- Found Images: ${data.foundImages ? data.foundImages.join(', ') : 'None'}
+- Total Images on Page: ${data.totalImagesOnPage || 'Unknown'}
+
+Next steps if failing:
+1. Check server logs for detailed extraction process
+2. Verify the URL is accessible from the server
+3. Check if the site blocks automated requests
+4. Try different URLs to isolate the issue
+                </div>
+            `;
+
+            html += '</div>';
+            resultsDiv.innerHTML = html;
+        }
+
+        // Auto-focus the input
+        document.getElementById('testUrl').focus();
+    </script>
+</body>
+</html>
