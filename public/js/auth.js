@@ -1,142 +1,207 @@
-// Authentication Management
+// Authentication Management - Complete Working Version
 
 let currentUser = null;
-let isLoginMode = true;
 
 // ====================================
 // AUTH UI MANAGEMENT
 // ====================================
 
 function showAuth() {
-    document.getElementById('auth-overlay').classList.remove('hidden');
-    document.getElementById('app-container').classList.add('hidden');
+    console.log('🔐 Showing auth screen');
+    const authOverlay = document.getElementById('auth-overlay');
+    const appContainer = document.getElementById('app-container');
+    
+    if (authOverlay) {
+        authOverlay.style.display = 'flex';
+        authOverlay.classList.remove('hidden');
+        console.log('✅ Auth overlay shown');
+    } else {
+        console.error('❌ Auth overlay not found');
+    }
+    
+    if (appContainer) {
+        appContainer.style.display = 'none';
+        appContainer.classList.add('hidden');
+        console.log('✅ App container hidden');
+    } else {
+        console.error('❌ App container not found');
+    }
 }
 
 function showApp() {
-    document.getElementById('auth-overlay').classList.add('hidden');
-    document.getElementById('app-container').classList.remove('hidden');
-}
-
-function toggleAuthMode() {
-    isLoginMode = !isLoginMode;
+    console.log('📱 Showing app');
+    const authOverlay = document.getElementById('auth-overlay');
+    const appContainer = document.getElementById('app-container');
     
-    const title = document.getElementById('auth-title');
-    const submitBtn = document.getElementById('auth-submit');
-    const switchText = document.getElementById('auth-switch-text');
-    const switchBtn = document.getElementById('auth-switch-btn');
-    const usernameGroup = document.getElementById('username-group');
-    const usernameInput = document.getElementById('username');
-
-    if (isLoginMode) {
-        title.textContent = 'Sign In to Team Archive';
-        submitBtn.textContent = 'Sign In';
-        switchText.textContent = "Don't have an account?";
-        switchBtn.textContent = 'Sign Up';
-        usernameGroup.classList.add('hidden');
-        // Remove required attribute when hidden
-        usernameInput.removeAttribute('required');
+    if (authOverlay) {
+        authOverlay.style.display = 'none';
+        authOverlay.classList.add('hidden');
+        console.log('✅ Auth overlay hidden');
     } else {
-        title.textContent = 'Join Team Archive';
-        submitBtn.textContent = 'Sign Up';
-        switchText.textContent = 'Already have an account?';
-        switchBtn.textContent = 'Sign In';
-        usernameGroup.classList.remove('hidden');
-        // Add required attribute when visible
-        usernameInput.setAttribute('required', 'required');
+        console.error('❌ Auth overlay not found');
     }
     
-    // Clear form
-    document.getElementById('auth-form').reset();
-    clearAuthError();
+    if (appContainer) {
+        appContainer.style.display = 'flex';
+        appContainer.classList.remove('hidden');
+        console.log('✅ App container shown');
+    } else {
+        console.error('❌ App container not found');
+    }
+    
+    // Force a repaint to ensure the transition happens
+    if (appContainer) {
+        appContainer.offsetHeight; // Trigger reflow
+    }
 }
 
 function showAuthError(message) {
+    console.log('❌ Auth error:', message);
     const errorDiv = document.getElementById('auth-error');
-    errorDiv.innerHTML = `<div class="error">${message}</div>`;
-    
-    // Auto-clear error after 5 seconds
-    setTimeout(() => {
-        clearAuthError();
-    }, 5000);
+    if (errorDiv) {
+        errorDiv.innerHTML = `<div class="error">${message}</div>`;
+        
+        // Auto-clear error after 5 seconds
+        setTimeout(() => {
+            clearAuthError();
+        }, 5000);
+    }
 }
 
 function clearAuthError() {
-    document.getElementById('auth-error').innerHTML = '';
+    const errorDiv = document.getElementById('auth-error');
+    if (errorDiv) {
+        errorDiv.innerHTML = '';
+    }
 }
 
 // ====================================
-// AUTH FORM HANDLING
+// SIMPLIFIED AUTH FORM HANDLING
 // ====================================
 
 async function handleAuth(event) {
+    console.log('🔐 handleAuth called');
     event.preventDefault();
     
-    const email = document.getElementById('email').value.trim();
-    const password = document.getElementById('password').value;
-    const username = document.getElementById('username').value.trim();
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    
+    if (!usernameInput || !passwordInput) {
+        console.error('❌ Username or password input not found');
+        showAuthError('Form elements not found. Please refresh the page.');
+        return;
+    }
+    
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+    
+    console.log('📝 Form data:', { username: username, passwordLength: password.length });
     
     // Basic validation
-    if (!email || !password) {
-        showAuthError('Please fill in all required fields');
-        return;
-    }
-    
-    if (!isLoginMode && !username) {
-        showAuthError('Username is required for registration');
-        return;
-    }
-    
-    if (password.length < 6) {
-        showAuthError('Password must be at least 6 characters');
+    if (!username || !password) {
+        showAuthError('Please enter both username and password');
         return;
     }
     
     const submitBtn = document.getElementById('auth-submit');
+    if (!submitBtn) {
+        console.error('❌ Submit button not found');
+        return;
+    }
+    
     const originalText = submitBtn.textContent;
     
     submitBtn.disabled = true;
-    submitBtn.textContent = isLoginMode ? 'Signing In...' : 'Creating Account...';
+    submitBtn.textContent = 'Signing In...';
+    clearAuthError(); // Clear any previous errors
     
     try {
-        let response;
+        console.log('📡 Attempting login...');
         
-        if (isLoginMode) {
-            response = await window.api.login(email, password);
-        } else {
-            response = await window.api.register(username, email, password);
+        // Check if API is available
+        if (!window.api) {
+            throw new Error('API not available');
         }
+        
+        // Try simple login first
+        let response;
+        try {
+            if (typeof window.api.simpleLogin === 'function') {
+                console.log('🔑 Using simpleLogin method');
+                response = await window.api.simpleLogin(username, password);
+            } else {
+                console.log('🔑 Using fallback login method');
+                // Fallback to regular login with username as email
+                response = await window.api.login(username, password);
+            }
+        } catch (apiError) {
+            console.log('🔄 First login attempt failed, trying email login');
+            // Try treating username as email
+            response = await window.api.login(username, password);
+        }
+        
+        console.log('✅ Login successful:', response);
         
         // Store user data
         currentUser = response.user;
         
-        // Show success and transition to app
-        showNotification(isLoginMode ? 'Welcome back!' : 'Account created successfully!');
+        // Show success message
+        if (typeof showNotification === 'function') {
+            showNotification('Welcome back, ' + currentUser.username + '!');
+        }
+        
+        console.log('🎯 Starting UI transition...');
+        
+        // Small delay to show success state
+        await new Promise(resolve => setTimeout(resolve, 300));
         
         // Show loading state during transition
         showLoadingState();
         
+        // Hide auth and show app
         showApp();
         updateUserInfo();
         
-        // Load initial data with proper sequencing
-        await loadInitialDataSequential();
+        console.log('📊 Loading initial data...');
+        
+        // Load initial data with error handling
+        try {
+            if (typeof loadInitialDataSequential === 'function') {
+                await loadInitialDataSequential();
+            } else if (typeof loadInitialData === 'function') {
+                await loadInitialData();
+            } else {
+                console.warn('⚠️ No data loading function found');
+            }
+        } catch (dataError) {
+            console.error('❌ Error loading initial data:', dataError);
+            // Continue anyway, don't block the UI
+        }
         
         // Hide loading state
         hideLoadingState();
         
+        console.log('🎉 Login sequence complete!');
+        
     } catch (error) {
-        console.error('Authentication error:', error);
+        console.error('❌ Authentication error:', error);
         
         // Show user-friendly error messages
-        if (error.message.includes('Invalid credentials')) {
-            showAuthError('Invalid email or password. Please try again.');
-        } else if (error.message.includes('already exists')) {
-            showAuthError('An account with this email or username already exists.');
-        } else if (error.message.includes('UNIQUE constraint failed')) {
-            showAuthError('Username or email already taken. Please choose different ones.');
-        } else {
-            showAuthError('Authentication failed. Please try again.');
+        let errorMessage = 'Login failed. Please try again.';
+        
+        if (error.message.includes('Invalid credentials') || 
+            error.message.includes('not found') ||
+            error.message.includes('401') ||
+            error.message.includes('400')) {
+            errorMessage = 'Invalid username or password. Please try again.';
+        } else if (error.message.includes('network') || 
+                   error.message.includes('fetch')) {
+            errorMessage = 'Network error. Please check your connection.';
+        } else if (error.message.includes('API not available')) {
+            errorMessage = 'System not ready. Please refresh the page.';
         }
+        
+        showAuthError(errorMessage);
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = originalText;
@@ -148,16 +213,24 @@ async function handleAuth(event) {
 // ====================================
 
 function updateUserInfo() {
+    console.log('👤 Updating user info:', currentUser);
     if (currentUser) {
-        document.getElementById('user-name').textContent = currentUser.username;
-        document.getElementById('user-role').textContent = currentUser.role;
-        document.getElementById('user-avatar').textContent = currentUser.username.charAt(0).toUpperCase();
+        const userNameEl = document.getElementById('user-name');
+        const userRoleEl = document.getElementById('user-role');
+        const userAvatarEl = document.getElementById('user-avatar');
+        
+        if (userNameEl) userNameEl.textContent = currentUser.username;
+        if (userRoleEl) userRoleEl.textContent = currentUser.role || 'Member';
+        if (userAvatarEl) userAvatarEl.textContent = currentUser.username.charAt(0).toUpperCase();
     }
 }
 
 function logout() {
+    console.log('👋 Logging out');
     // Clear API token
-    window.api.logout();
+    if (window.api && typeof window.api.logout === 'function') {
+        window.api.logout();
+    }
     
     // Clear user data
     currentUser = null;
@@ -168,7 +241,9 @@ function logout() {
     // Show auth screen
     showAuth();
     
-    showNotification('Logged out successfully');
+    if (typeof showNotification === 'function') {
+        showNotification('Logged out successfully');
+    }
 }
 
 function clearApplicationState() {
@@ -184,7 +259,9 @@ function clearApplicationState() {
     }
     
     // Reset collection selection
-    window.currentCollection = 'all';
+    if (window.currentCollection) {
+        window.currentCollection = 'all';
+    }
     
     // Clear grid
     const grid = document.getElementById('archive-grid');
@@ -204,56 +281,70 @@ function clearApplicationState() {
 // ====================================
 
 async function checkAutoLogin() {
+    console.log('🔍 Checking auto-login');
     const token = localStorage.getItem('authToken');
     
     if (!token) {
+        console.log('🔐 No token found, showing auth');
         showAuth();
         return false;
     }
     
     try {
+        console.log('🔑 Token found, validating...');
+        
         // Show loading state
         showLoadingState();
         
-        // Test token validity by making a simple API call with retry
-        let collections;
-        let retryCount = 0;
-        const maxRetries = 3;
-        
-        while (retryCount < maxRetries) {
-            try {
-                collections = await window.api.getCollections();
-                break; // Success, exit retry loop
-            } catch (error) {
-                retryCount++;
-                if (retryCount >= maxRetries) {
-                    throw error; // Re-throw if max retries reached
-                }
-                console.log(`Retry ${retryCount}/${maxRetries} for auth validation...`);
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-            }
+        // Wait for API to be ready
+        let attempts = 0;
+        while ((!window.api || typeof window.api.getCollections !== 'function') && attempts < 10) {
+            console.log('⏳ Waiting for API to be ready...');
+            await new Promise(resolve => setTimeout(resolve, 200));
+            attempts++;
         }
+        
+        if (!window.api || typeof window.api.getCollections !== 'function') {
+            throw new Error('API not ready after waiting');
+        }
+        
+        // Test token validity
+        const collections = await window.api.getCollections();
+        console.log('✅ Token valid, collections loaded:', collections.length);
         
         // If successful, we're logged in
         currentUser = { 
             username: 'User', 
-            role: 'member' 
+            role: 'Member' 
         };
         
-        hideLoadingState();
+        // Show app and update UI
         showApp();
         updateUserInfo();
         
-        // Load initial data with proper sequencing
-        await loadInitialDataSequential();
+        // Load initial data
+        try {
+            if (typeof loadInitialDataSequential === 'function') {
+                await loadInitialDataSequential();
+            } else if (typeof loadInitialData === 'function') {
+                await loadInitialData();
+            }
+        } catch (dataError) {
+            console.error('❌ Error loading data during auto-login:', dataError);
+            // Continue anyway
+        }
+        
+        hideLoadingState();
         return true;
         
     } catch (error) {
-        console.log('Token validation failed:', error);
+        console.log('❌ Token validation failed:', error);
         
         // Clear invalid token
         localStorage.removeItem('authToken');
-        window.api.token = null;
+        if (window.api) {
+            window.api.token = null;
+        }
         
         hideLoadingState();
         showAuth();
@@ -266,59 +357,59 @@ async function checkAutoLogin() {
 // ====================================
 
 function showLoadingState() {
-    // Create or show loading overlay
+    console.log('⏳ Showing loading state');
     let loadingOverlay = document.getElementById('loading-overlay');
     if (!loadingOverlay) {
         loadingOverlay = document.createElement('div');
         loadingOverlay.id = 'loading-overlay';
+        loadingOverlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10001;
+            backdrop-filter: blur(5px);
+        `;
         loadingOverlay.innerHTML = `
-            <div style="
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(255, 255, 255, 0.9);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 9999;
-                backdrop-filter: blur(5px);
-            ">
+            <div style="text-align: center; color: #2c3e50;">
                 <div style="
-                    text-align: center;
-                    color: #2c3e50;
-                ">
-                    <div style="
-                        width: 50px;
-                        height: 50px;
-                        border: 4px solid #e9ecef;
-                        border-top: 4px solid #667eea;
-                        border-radius: 50%;
-                        animation: spin 1s linear infinite;
-                        margin: 0 auto 20px;
-                    "></div>
-                    <div style="font-size: 18px; font-weight: 600;">Loading Archive...</div>
-                    <div style="font-size: 14px; color: #6c757d; margin-top: 8px;">Please wait</div>
-                </div>
+                    width: 50px;
+                    height: 50px;
+                    border: 4px solid #e9ecef;
+                    border-top: 4px solid #667eea;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin: 0 auto 20px;
+                "></div>
+                <div style="font-size: 18px; font-weight: 600;">Loading Archive...</div>
+                <div style="font-size: 14px; color: #6c757d; margin-top: 8px;">Please wait</div>
             </div>
         `;
         document.body.appendChild(loadingOverlay);
         
-        // Add spin animation
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-        `;
-        document.head.appendChild(style);
+        // Add spin animation if not exists
+        if (!document.getElementById('spin-animation-style')) {
+            const style = document.createElement('style');
+            style.id = 'spin-animation-style';
+            style.textContent = `
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            `;
+            document.head.appendChild(style);
+        }
     }
     loadingOverlay.style.display = 'flex';
 }
 
 function hideLoadingState() {
+    console.log('✅ Hiding loading state');
     const loadingOverlay = document.getElementById('loading-overlay');
     if (loadingOverlay) {
         loadingOverlay.style.display = 'none';
@@ -326,27 +417,178 @@ function hideLoadingState() {
 }
 
 // ====================================
-// DEMO CREDENTIALS HELPER
+// DEMO HELPER
 // ====================================
 
 function fillDemoCredentials() {
-    document.getElementById('email').value = 'demo@team.com';
-    document.getElementById('password').value = 'demo123';
+    console.log('🎯 Filling demo credentials');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
     
-    showNotification('Demo credentials filled! Click Sign In to continue.', 'info');
+    if (usernameInput && passwordInput) {
+        usernameInput.value = 'demo';
+        passwordInput.value = 'demo123';
+        if (typeof showNotification === 'function') {
+            showNotification('Demo credentials filled! Click Sign In to continue.');
+        }
+    } else {
+        console.error('❌ Could not find username/password inputs');
+    }
 }
 
-// Add demo button (optional - you can remove this)
-function addDemoButton() {
-    const authModal = document.querySelector('.auth-modal');
-    const demoBtn = document.createElement('button');
-    demoBtn.type = 'button';
-    demoBtn.className = 'btn-secondary';
-    demoBtn.textContent = 'Use Demo Account';
-    demoBtn.style.cssText = 'margin-top: 10px; background: #e9ecef; color: #495057;';
-    demoBtn.onclick = fillDemoCredentials;
+// ====================================
+// DEBUG HELPERS - Remove in production
+// ====================================
+
+function debugUIStates() {
+    const authOverlay = document.getElementById('auth-overlay');
+    const appContainer = document.getElementById('app-container');
     
-    authModal.insertBefore(demoBtn, authModal.querySelector('.auth-switch'));
+    console.log('🔍 UI Debug States:');
+    console.log('  Auth Overlay:', {
+        exists: !!authOverlay,
+        display: authOverlay?.style.display,
+        classes: authOverlay?.classList.toString(),
+        visible: authOverlay ? !authOverlay.classList.contains('hidden') : false
+    });
+    console.log('  App Container:', {
+        exists: !!appContainer,
+        display: appContainer?.style.display,
+        classes: appContainer?.classList.toString(),
+        visible: appContainer ? !appContainer.classList.contains('hidden') : false
+    });
+}
+
+function forceShowApp() {
+    console.log('🔧 Force showing app...');
+    const authOverlay = document.getElementById('auth-overlay');
+    const appContainer = document.getElementById('app-container');
+    
+    if (authOverlay) {
+        authOverlay.style.display = 'none';
+        authOverlay.classList.add('hidden');
+    }
+    
+    if (appContainer) {
+        appContainer.style.display = 'flex';
+        appContainer.classList.remove('hidden');
+    }
+    
+    debugUIStates();
+}
+
+function forceShowAuth() {
+    console.log('🔧 Force showing auth...');
+    const authOverlay = document.getElementById('auth-overlay');
+    const appContainer = document.getElementById('app-container');
+    
+    if (authOverlay) {
+        authOverlay.style.display = 'flex';
+        authOverlay.classList.remove('hidden');
+    }
+    
+    if (appContainer) {
+        appContainer.style.display = 'none';
+        appContainer.classList.add('hidden');
+    }
+    
+    debugUIStates();
+}
+
+// Add debug state indicator
+function addDebugIndicator() {
+    if (document.getElementById('debug-indicator')) return;
+    
+    const indicator = document.createElement('div');
+    indicator.id = 'debug-indicator';
+    indicator.className = 'debug-state';
+    indicator.style.cssText = `
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 11px;
+        z-index: 10000;
+        font-family: monospace;
+        cursor: pointer;
+    `;
+    indicator.innerHTML = 'Auth Debug';
+    indicator.onclick = debugUIStates;
+    document.body.appendChild(indicator);
+    
+    // Update indicator every second
+    setInterval(() => {
+        const authVisible = !document.getElementById('auth-overlay')?.classList.contains('hidden');
+        const appVisible = !document.getElementById('app-container')?.classList.contains('hidden');
+        
+        indicator.innerHTML = `Auth: ${authVisible ? 'ON' : 'OFF'} | App: ${appVisible ? 'ON' : 'OFF'}`;
+        indicator.style.background = authVisible ? 'rgba(220, 53, 69, 0.8)' : 'rgba(40, 167, 69, 0.8)';
+    }, 1000);
+}
+
+// ====================================
+// INITIALIZATION AND EVENT SETUP
+// ====================================
+
+function initializeAuth() {
+    console.log('🚀 Initializing authentication system...');
+    
+    // Add debug indicator
+    addDebugIndicator();
+    
+    // Initial UI state check
+    setTimeout(() => {
+        debugUIStates();
+    }, 1000);
+    
+    // Find the auth form
+    const authForm = document.getElementById('auth-form');
+    if (!authForm) {
+        console.error('❌ Auth form not found');
+        return;
+    }
+    
+    // Remove any existing event listeners
+    authForm.onsubmit = null;
+    
+    // Add event listener
+    authForm.addEventListener('submit', handleAuth);
+    console.log('✅ Auth form event listener attached');
+    
+    // Also add click event to submit button as backup
+    const submitBtn = document.getElementById('auth-submit');
+    if (submitBtn) {
+        submitBtn.addEventListener('click', function(event) {
+            if (event.target.form) {
+                handleAuth(event);
+            }
+        });
+        console.log('✅ Submit button event listener attached');
+    }
+    
+    // Focus username input
+    const usernameInput = document.getElementById('username');
+    if (usernameInput) {
+        usernameInput.focus();
+    }
+    
+    // Add enter key listeners to inputs
+    ['username', 'password'].forEach(inputId => {
+        const input = document.getElementById(inputId);
+        if (input) {
+            input.addEventListener('keypress', function(event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleAuth(event);
+                }
+            });
+        }
+    });
+    
+    console.log('✅ Authentication system initialized');
 }
 
 // ====================================
@@ -354,22 +596,34 @@ function addDemoButton() {
 // ====================================
 
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('🚀 DOM Content Loaded - Initializing auth system...');
+    console.log('🚀 DOM Content Loaded - Setting up auth system...');
     
-    // Set up auth form
-    document.getElementById('auth-switch-btn').onclick = toggleAuthMode;
-    document.getElementById('auth-form').onsubmit = handleAuth;
-    
-    // Initialize username field properly (start in login mode)
-    const usernameInput = document.getElementById('username');
-    usernameInput.removeAttribute('required'); // Start without required since we're in login mode
-    
-    // Add demo button (optional)
-    // addDemoButton();
-    
-    // Wait for all scripts to load before checking auth
+    // Wait a bit for all scripts to load
     setTimeout(() => {
-        console.log('🔍 Checking existing session...');
-        checkAutoLogin();
+        initializeAuth();
+        
+        // Check for existing session
+        setTimeout(() => {
+            console.log('🔍 Checking existing session...');
+            checkAutoLogin().then(() => {
+                debugUIStates();
+            });
+        }, 500);
     }, 100);
 });
+
+// ====================================
+// GLOBAL EXPORTS
+// ====================================
+
+// Make functions available globally
+window.logout = logout;
+window.showAuth = showAuth;
+window.showApp = showApp;
+window.fillDemoCredentials = fillDemoCredentials;
+window.handleAuth = handleAuth;
+window.debugUIStates = debugUIStates;
+window.forceShowApp = forceShowApp;
+window.forceShowAuth = forceShowAuth;
+
+console.log('📜 Complete auth.js loaded successfully');

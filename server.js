@@ -426,7 +426,58 @@ app.post('/api/auth/register', async (req, res) => {
     }
 });
 
-// Login
+// Simple login with username/password
+app.post('/api/auth/simple-login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        
+        if (!username || !password) {
+            return res.status(400).json({ error: 'Username and password required' });
+        }
+        
+        // Try to find user by username first, then by email as fallback
+        db.get(
+            'SELECT * FROM users WHERE username = ? OR email = ?',
+            [username, username],
+            async (err, user) => {
+                if (err) {
+                    return res.status(500).json({ error: err.message });
+                }
+                
+                if (!user) {
+                    return res.status(400).json({ error: 'Invalid credentials' });
+                }
+                
+                // Check password
+                const isMatch = await bcrypt.compare(password, user.password);
+                if (!isMatch) {
+                    return res.status(400).json({ error: 'Invalid credentials' });
+                }
+                
+                // Generate JWT
+                const token = jwt.sign(
+                    { userId: user.id, username: user.username },
+                    JWT_SECRET,
+                    { expiresIn: '24h' }
+                );
+                
+                res.json({
+                    token,
+                    user: {
+                        id: user.id,
+                        username: user.username,
+                        email: user.email,
+                        role: user.role
+                    }
+                });
+            }
+        );
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Keep the old login route for backward compatibility if needed
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -847,7 +898,162 @@ app.delete('/api/items/:id', authenticateToken, (req, res) => {
 });
 
 // ====================================
-// EXPORT ROUTES (UPDATED)
+// FILE MANAGEMENT ROUTES
+// ====================================
+
+// Upload additional files to existing item
+app.post('/api/items/:id/files', authenticateToken, upload.array('files', 5), (req, res) => {
+    const itemId = req.params.id;
+    
+    // Check if item exists and user has permission
+    db.get(
+        'SELECT * FROM archive_items WHERE id = ? AND created_by = ?',
+        [itemId, req.user.userId],
+        (err, item) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            if (!item) {
+                return res.status(404).json({ error: 'Item not found or unauthorized' });
+            }
+            
+            if (!req.files || req.files.length === 0) {
+                return res.status(400).json({ error: 'No files provided' });
+            }
+            
+            // Insert files into database
+            const fileInserts = req.files.map(file => {
+                return new Promise((resolve, reject) => {
+                    db.run(
+                        'INSERT INTO files (item_id, filename, original_name, mimetype, size, path) VALUES (?, ?, ?, ?, ?, ?)',
+                        [itemId, file.filename, file.originalname, file.mimetype, file.size, file.path],
+                        function(err) {
+                            if (err) reject(err);
+                            else resolve({
+                                id: this.lastID,
+                                item_id: itemId,
+                                filename: file.filename,
+                                original_name: file.originalname,
+                                mimetype: file.mimetype,
+                                size: file.size,
+                                path: file.path
+                            });
+                        }
+                    );
+                });
+            });
+            
+            Promise.all(fileInserts)
+                .then(newFiles => {
+                    res.status(201).json({
+                        message: `Uploaded ${newFiles.length} file(s) successfully`,
+                        files: newFiles
+                    });
+                })
+                .catch(err => {
+                    console.error('Error inserting files:', err);
+                    res.status(500).json({ error: 'Failed to save file information' });
+                });
+        }
+    );
+});
+
+// Get single item with files
+app.get('/api/items/:id', authenticateToken, (req, res) => {
+    const itemId = req.params.id;
+    
+    db.get(
+        `SELECT 
+            ai.*,
+            c.name as collection_name,
+            c.icon as collection_icon,
+            u.username as author_username
+        FROM archive_items ai
+        LEFT JOIN collections c ON ai.collection_id = c.id
+        LEFT JOIN users u ON ai.created_by = u.id
+        WHERE ai.id = ?`,
+        [itemId],
+        (err, item) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            if (!item) {
+                return res.status(404).json({ error: 'Item not found' });
+            }
+            
+            // Get files for the item
+            db.all(
+                'SELECT * FROM files WHERE item_id = ?',
+                [itemId],
+                (err, files) => {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    
+                    res.json({
+                        ...item,
+                        tags: item.tags ? item.tags.split(',').map(tag => tag.trim()) : [],
+                        files: files || []
+                    });
+                }
+            );
+        }
+    );
+});
+
+// Delete specific file
+app.delete('/api/files/:id', authenticateToken, (req, res) => {
+    const fileId = req.params.id;
+    
+    // Get file info and check if user owns the item
+    db.get(
+        `SELECT f.*, ai.created_by 
+         FROM files f 
+         JOIN archive_items ai ON f.item_id = ai.id 
+         WHERE f.id = ?`,
+        [fileId],
+        (err, file) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            if (!file) {
+                return res.status(404).json({ error: 'File not found' });
+            }
+            
+            if (file.created_by !== req.user.userId) {
+                return res.status(403).json({ error: 'Unauthorized' });
+            }
+            
+            // Delete file from filesystem
+            try {
+                if (fs.existsSync(file.path)) {
+                    fs.unlinkSync(file.path);
+                }
+            } catch (error) {
+                console.error('Error deleting file from filesystem:', error);
+            }
+            
+            // Delete file from database
+            db.run(
+                'DELETE FROM files WHERE id = ?',
+                [fileId],
+                function(err) {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    
+                    res.json({ message: 'File deleted successfully' });
+                }
+            );
+        }
+    );
+});
+
+// ====================================
+// EXPORT ROUTES
 // ====================================
 
 app.get('/api/export', authenticateToken, (req, res) => {

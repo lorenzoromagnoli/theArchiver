@@ -84,10 +84,25 @@ class ArchiveAPI {
         return response;
     }
 
+        // ====================================
+    // SIMPLIFIED AUTH METHODS
+    // ====================================
+
+    async simpleLogin(username, password) {
+        const response = await this.request('/auth/simple-login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password }),
+        });
+        
+        this.token = response.token;
+        localStorage.setItem('authToken', this.token);
+        return response;
+    }
+
     logout() {
         this.token = null;
         localStorage.removeItem('authToken');
-    }
+}
 
     // ====================================
     // COLLECTIONS METHODS

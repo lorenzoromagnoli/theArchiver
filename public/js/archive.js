@@ -10,6 +10,7 @@ let dataLoadPromise = null;
 let autoSaveTimeout = null;
 let isAutoSaving = false;
 let hasUnsavedChanges = false;
+let modalSelectedFiles = [];
 
 // Make functions globally available
 window.showItemDetails = showItemDetails;
@@ -84,7 +85,6 @@ async function loadInitialDataSequential() {
 async function loadArchiveItems() {
     try {
         console.log('🔄 Loading archive items...');
-        console.log('🔍 Current collection:', currentCollection);
         
         // Ensure we have a fresh state
         const grid = document.getElementById('archive-grid');
@@ -109,35 +109,11 @@ async function loadArchiveItems() {
             </div>
         `;
         
-        console.log('📡 BEFORE MAPPING - currentCollection:', currentCollection);
-        
         const params = {};
         
-        // EXPLICIT COLLECTION MAPPING - THIS SHOULD SHOW IN CONSOLE
         if (currentCollection !== 'all') {
-            console.log('🔧 MAPPING LOGIC EXECUTING for:', currentCollection);
-            
-            // Direct mapping to ensure it works
-            if (currentCollection === 'inspiration') {
-                params.collection = 'Inspiration';
-                console.log('✅ MAPPED inspiration → Inspiration');
-            } else if (currentCollection === 'design') {
-                params.collection = 'Design';
-                console.log('✅ MAPPED design → Design');
-            } else if (currentCollection === 'research') {
-                params.collection = 'Research';
-                console.log('✅ MAPPED research → Research');
-            } else if (currentCollection === 'resources') {
-                params.collection = 'Resources';
-                console.log('✅ MAPPED resources → Resources');
-            } else {
-                // Fallback
-                params.collection = currentCollection.charAt(0).toUpperCase() + currentCollection.slice(1);
-                console.log('⚠️ FALLBACK MAPPING:', currentCollection, '→', params.collection);
-            }
+            params.collection = currentCollection;
         }
-        
-        console.log('📡 FINAL PARAMS OBJECT:', params);
         
         const searchQuery = document.getElementById('search-input')?.value.trim();
         if (searchQuery) {
@@ -155,16 +131,6 @@ async function loadArchiveItems() {
             try {
                 response = await window.api.getItems(params);
                 console.log('✅ API response received:', response);
-                console.log('📊 Items in response:', response.items?.length || 0);
-                
-                // Debug: Log first few items with their collections
-                if (response.items && response.items.length > 0) {
-                    console.log('🔍 First 3 items and their collections:');
-                    response.items.slice(0, 3).forEach((item, index) => {
-                        console.log(`  ${index + 1}. "${item.title}" - Collection: "${item.collection_name}"`);
-                    });
-                }
-                
                 break; // Success, exit retry loop
             } catch (error) {
                 retryCount++;
@@ -190,10 +156,12 @@ async function loadArchiveItems() {
             
             console.log(`📊 Loaded and sorted ${allItems.length} items chronologically`);
             
-            // Debug: Show what collections we actually have
+            // Log first few items to verify sorting
             if (allItems.length > 0) {
-                const collections = [...new Set(allItems.map(item => item.collection_name))];
-                console.log('📁 Available collections in data:', collections);
+                console.log('🕒 First 3 items by date:');
+                allItems.slice(0, 3).forEach((item, index) => {
+                    console.log(`  ${index + 1}. ${item.title} - ${new Date(item.created_at).toLocaleString()}`);
+                });
             }
         }
         
@@ -599,6 +567,20 @@ function createItemDetailsModal() {
                             <h3>Attached Files</h3>
                             <div id="details-files" class="files-container"></div>
                         </div>
+                        
+                        <div class="info-section">
+                            <h3>Add New Files</h3>
+                            <div class="file-upload-section">
+                                <div class="file-upload" onclick="document.getElementById('modal-file-input').click()">
+                                    <input type="file" id="modal-file-input" multiple accept="image/*,video/*,.pdf,.doc,.docx,.txt" style="display: none;">
+                                    <div>📁 Click to upload new files</div>
+                                    <div style="font-size: 12px; margin-top: 5px; opacity: 0.7;">
+                                        Images, videos, documents (max 10MB each)
+                                    </div>
+                                </div>
+                                <div id="modal-selected-files" class="selected-files-preview"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -824,19 +806,60 @@ function populateItemFiles(item) {
     }
     
     filesContainer.innerHTML = nonImageFiles.map(file => `
-        <div class="file-item">
+        <div class="file-item" id="file-${file.id}">
             <div class="file-icon">${getFileIconLarge(file.mimetype)}</div>
             <div class="file-info">
                 <div class="file-name">${escapeHtml(file.original_name)}</div>
                 <div class="file-size">${formatFileSize(file.size)}</div>
             </div>
-            <button class="btn btn-secondary btn-sm" onclick="downloadFile('${file.filename}', '${escapeHtml(file.original_name)}')">
-                💾 Download
-            </button>
+            <div class="file-actions">
+                <button class="btn btn-secondary btn-sm" onclick="downloadFile('${file.filename}', '${escapeHtml(file.original_name)}')">
+                    💾 Download
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="deleteFile(${file.id}, ${item.id})" style="color: #dc3545; margin-left: 8px;">
+                    🗑️ Delete
+                </button>
+            </div>
         </div>
     `).join('');
     
     filesSection.style.display = 'block';
+}
+
+async function deleteFile(fileId, itemId) {
+    if (!confirm('Are you sure you want to delete this file?')) {
+        return;
+    }
+    
+    try {
+        await window.api.request(`/files/${fileId}`, {
+            method: 'DELETE'
+        });
+        
+        // Remove file from DOM
+        const fileElement = document.getElementById(`file-${fileId}`);
+        if (fileElement) {
+            fileElement.remove();
+        }
+        
+        // Update the item in our local array
+        const itemIndex = allItems.findIndex(item => item.id == itemId);
+        if (itemIndex !== -1) {
+            allItems[itemIndex].files = allItems[itemIndex].files.filter(f => f.id !== fileId);
+            
+            // Re-populate files section
+            populateItemFiles(allItems[itemIndex]);
+        }
+        
+        // Update grid
+        renderItems();
+        
+        showNotification('File deleted successfully');
+        
+    } catch (error) {
+        console.error('❌ File deletion failed:', error);
+        showNotification('Failed to delete file. Please try again.', 'error');
+    }
 }
 
 // ====================================
@@ -911,6 +934,15 @@ function closeFullscreenImage() {
 function setupInlineEditAutoSave(itemId) {
     console.log('🔧 Setting up auto-save for item:', itemId);
     
+    // Clear any existing timeout
+    if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+        autoSaveTimeout = null;
+    }
+    
+    // Reset file selection
+    modalSelectedFiles = [];
+    
     // Get all editable elements
     const editableElements = [
         'edit-title',
@@ -919,12 +951,6 @@ function setupInlineEditAutoSave(itemId) {
         'edit-tags',
         'edit-url'
     ];
-    
-    // Clear any existing timeout
-    if (autoSaveTimeout) {
-        clearTimeout(autoSaveTimeout);
-        autoSaveTimeout = null;
-    }
     
     // Set up event listeners for each editable element
     editableElements.forEach(elementId => {
@@ -957,8 +983,116 @@ function setupInlineEditAutoSave(itemId) {
         }
     });
     
+    // Set up file input handler
+    const fileInput = document.getElementById('modal-file-input');
+    if (fileInput) {
+        fileInput.addEventListener('change', (e) => {
+            handleModalFileSelection(e, itemId);
+        });
+    }
+    
     // Update save status
     updateSaveStatus('ready');
+}
+
+function handleModalFileSelection(event, itemId) {
+    const files = Array.from(event.target.files);
+    modalSelectedFiles = [...modalSelectedFiles, ...files];
+    
+    console.log('📎 Files selected for upload:', files.length);
+    updateModalFilesList();
+    
+    // Immediately upload files
+    if (files.length > 0) {
+        uploadNewFiles(itemId, files);
+    }
+}
+
+function updateModalFilesList() {
+    const container = document.getElementById('modal-selected-files');
+    if (!container) return;
+    
+    if (modalSelectedFiles.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    
+    container.innerHTML = modalSelectedFiles.map((file, index) => `
+        <div class="selected-file-item" style="display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px; background: #f8f9fa; border-radius: 6px;">
+            <span style="flex: 1; font-size: 13px;">${escapeHtml(file.name)}</span>
+            <span style="font-size: 11px; color: #6c757d;">${formatFileSize(file.size)}</span>
+            <button type="button" onclick="removeModalFile(${index})" style="background: #dc3545; color: white; border: none; border-radius: 3px; width: 20px; height: 20px; font-size: 11px; cursor: pointer;">×</button>
+        </div>
+    `).join('');
+}
+
+function removeModalFile(index) {
+    modalSelectedFiles.splice(index, 1);
+    updateModalFilesList();
+}
+
+async function uploadNewFiles(itemId, files) {
+    if (isAutoSaving) return;
+    
+    console.log('📤 Uploading new files for item:', itemId);
+    isAutoSaving = true;
+    updateSaveStatus('saving');
+    
+    try {
+        // Create FormData with files
+        const formData = new FormData();
+        files.forEach(file => {
+            formData.append('files', file);
+        });
+        
+        // Upload files via API
+        const response = await window.api.request(`/items/${itemId}/files`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        console.log('✅ Files uploaded successfully');
+        
+        // Update the item in our local array
+        const itemIndex = allItems.findIndex(item => item.id == itemId);
+        if (itemIndex !== -1) {
+            // Refresh the item data
+            const updatedItem = await window.api.request(`/items/${itemId}`);
+            allItems[itemIndex] = updatedItem;
+        }
+        
+        // Refresh the files display
+        const currentItem = allItems.find(item => item.id == itemId);
+        if (currentItem) {
+            populateItemFiles(currentItem);
+            populateItemImages(currentItem);
+        }
+        
+        // Update grid
+        renderItems();
+        updateCollectionCounts();
+        
+        // Clear uploaded files from the selection
+        const uploadedFileNames = files.map(f => f.name);
+        modalSelectedFiles = modalSelectedFiles.filter(f => !uploadedFileNames.includes(f.name));
+        updateModalFilesList();
+        
+        // Reset file input
+        const fileInput = document.getElementById('modal-file-input');
+        if (fileInput) {
+            fileInput.value = '';
+        }
+        
+        updateSaveStatus('saved');
+        showNotification(`Uploaded ${files.length} file(s) successfully!`);
+        
+    } catch (error) {
+        console.error('❌ File upload failed:', error);
+        updateSaveStatus('error');
+        showNotification('Failed to upload files. Please try again.', 'error');
+    } finally {
+        isAutoSaving = false;
+    }
 }
 
 function onFieldChange(itemId) {
@@ -1465,3 +1599,4 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+            

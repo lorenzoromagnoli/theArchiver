@@ -1,4 +1,4 @@
-// Main Application Controller
+// Main Application Controller - CSS Removed
 
 // ====================================
 // GLOBAL STATE
@@ -362,91 +362,10 @@ function initializeApplication() {
 }
 
 // ====================================
-// CSS ANIMATIONS
-// ====================================
-
-function addCustomStyles() {
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes slideOut {
-            to {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-        }
-        
-        .file-upload.dragover {
-            border-color: #667eea !important;
-            background: rgba(102, 126, 234, 0.1) !important;
-        }
-        
-        .search-input:focus {
-            transform: scale(1.02);
-            transition: all 0.2s ease;
-        }
-        
-        .archive-item {
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        .archive-item:hover {
-            transform: translateY(-8px) scale(1.02);
-        }
-        
-        .collection-item {
-            transition: all 0.2s ease;
-        }
-        
-        .collection-item:hover {
-            transform: translateX(4px);
-        }
-        
-        .notification {
-            animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        @keyframes slideIn {
-            from {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-        
-        /* Loading states */
-        .btn:disabled {
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .btn:disabled::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-            animation: loading 1.5s infinite;
-        }
-        
-        @keyframes loading {
-            0% { left: -100%; }
-            100% { left: 100%; }
-        }
-    `;
-    document.head.appendChild(style);
-}
-
-// ====================================
 // DOCUMENT READY
 // ====================================
 
 document.addEventListener('DOMContentLoaded', function() {
-    addCustomStyles();
     initializeApplication();
     
     // Show loading indicator
