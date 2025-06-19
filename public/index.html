@@ -10,48 +10,47 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- REPLACE THE ENTIRE AUTH MODAL SECTION in your index.html -->
-<!-- Authentication Modal -->
-<div id="auth-overlay" class="auth-overlay">
-    <div class="auth-modal">
-        <h2 id="auth-title">Sign In to Team Archive</h2>
-        <div id="auth-error"></div>
-        
-        <form id="auth-form">
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" required autofocus 
-                       placeholder="Enter your username"
-                       autocomplete="username">
+    <!-- Authentication Modal -->
+    <div id="auth-overlay" class="auth-overlay">
+        <div class="auth-modal">
+            <h2 id="auth-title">Sign In to Team Archive</h2>
+            <div id="auth-error"></div>
+            
+            <form id="auth-form">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required autofocus 
+                           placeholder="Enter your username"
+                           autocomplete="username">
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required 
+                           placeholder="Enter your password"
+                           autocomplete="current-password">
+                </div>
+                
+                <button type="submit" id="auth-submit" class="btn">
+                    Sign In
+                </button>
+            </form>
+            
+            <!-- Demo credentials helper -->
+            <div class="auth-helper" style="text-align: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee;">
+                <p style="margin: 0 0 10px 0; color: #666; font-size: 14px;">For testing:</p>
+                <button type="button" onclick="fillDemoCredentials()" 
+                        style="background: #e9ecef; color: #495057; border: 1px solid #ced4da; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                    Use Demo Account (demo/demo123)
+                </button>
             </div>
             
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required 
-                       placeholder="Enter your password"
-                       autocomplete="current-password">
+            <!-- Debug info in development -->
+            <div style="margin-top: 15px; font-size: 12px; color: #999; text-align: center;">
+                Available accounts: admin/admin123, demo/demo123
             </div>
-            
-            <button type="submit" id="auth-submit" class="btn">
-                Sign In
-            </button>
-        </form>
-        
-        <!-- Demo credentials helper -->
-        <div class="auth-helper" style="text-align: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee;">
-            <p style="margin: 0 0 10px 0; color: #666; font-size: 14px;">For testing:</p>
-            <button type="button" onclick="fillDemoCredentials()" 
-                    style="background: #e9ecef; color: #495057; border: 1px solid #ced4da; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px;">
-                Use Demo Account (demo/demo123)
-            </button>
-        </div>
-        
-        <!-- Debug info in development -->
-        <div style="margin-top: 15px; font-size: 12px; color: #999; text-align: center;">
-            Available accounts: admin/admin123, demo/demo123
         </div>
     </div>
-</div>
 
     <!-- Main Application -->
     <div id="app-container" class="container hidden">
@@ -188,90 +187,6 @@
         </div>
     </div>
 
-    <!-- Item Details Modal -->
-    <div class="modal item-details-modal" id="item-details-modal">
-        <div class="modal-content item-details-content">
-            <div class="item-details-header">
-                <h2 id="details-title">Item Details</h2>
-                <button class="close-details-btn" onclick="closeItemDetails()" title="Close">×</button>
-            </div>
-            
-            <div class="item-details-body" id="item-details-body">
-                <div class="item-details-main">
-                    <div class="item-images" id="details-images">
-                        <!-- Images will be populated here -->
-                    </div>
-                    
-                    <div class="item-info">
-                        <div class="info-section">
-                            <h3>Description</h3>
-                            <p id="details-description" class="description-text">Loading...</p>
-                        </div>
-                        
-                        <div class="info-section" id="details-tags-section" style="display: none;">
-                            <h3>Tags</h3>
-                            <div id="details-tags" class="tags-container"></div>
-                        </div>
-                        
-                        <div class="info-section" id="details-url-section" style="display: none;">
-                            <h3>External Link</h3>
-                            <a id="details-url" href="#" target="_blank" class="external-link"></a>
-                        </div>
-                        
-                        <div class="info-section">
-                            <h3>Details</h3>
-                            <div class="details-grid">
-                                <div class="detail-item">
-                                    <strong>Collection:</strong>
-                                    <span id="details-collection">-</span>
-                                </div>
-                                <div class="detail-item">
-                                    <strong>Created by:</strong>
-                                    <span id="details-author">-</span>
-                                </div>
-                                <div class="detail-item">
-                                    <strong>Created:</strong>
-                                    <span id="details-created">-</span>
-                                </div>
-                                <div class="detail-item" id="details-updated-item" style="display: none;">
-                                    <strong>Updated:</strong>
-                                    <span id="details-updated">-</span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="info-section" id="details-files-section" style="display: none;">
-                            <h3>Attached Files</h3>
-                            <div id="details-files" class="files-container"></div>
-                        </div>
-                        
-                        <div class="info-section">
-                            <h3>Add New Files</h3>
-                            <div class="file-upload-section">
-                                <div class="file-upload" onclick="document.getElementById('modal-file-input').click()">
-                                    <input type="file" id="modal-file-input" multiple accept="image/*,video/*,.pdf,.doc,.docx,.txt" style="display: none;">
-                                    <div>📁 Click to upload new files</div>
-                                    <div style="font-size: 12px; margin-top: 5px; opacity: 0.7;">
-                                        Images, videos, documents (max 10MB each)
-                                    </div>
-                                </div>
-                                <div id="modal-selected-files" class="selected-files-preview"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="item-details-footer" id="details-footer">
-                <div class="auto-save-status" id="auto-save-status">
-                    <span class="save-indicator">💾</span>
-                    <span class="save-text">Ready</span>
-                </div>
-                <button class="btn btn-secondary" onclick="closeItemDetails()">Close</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Loading Overlay -->
     <div class="loading-overlay hidden" id="loading-overlay">
         <div class="loading-content">
@@ -280,10 +195,12 @@
         </div>
     </div>
 
-    <!-- Scripts -->
+    <!-- Scripts - Updated with modular structure -->
     <script src="js/api.js"></script>
     <script src="js/auth.js"></script>
-    <script src="js/archive.js"></script>
+    <script src="js/archive-core.js"></script>
+    <script src="js/archive-modal.js"></script>
+    <script src="js/archive-forms.js"></script>
     <script src="js/app.js"></script>
     <script src="js/live-reload.js"></script>
 </body>

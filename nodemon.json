@@ -1,22 +1,22 @@
 {
-    "watch": [
-      "server.js",
-      "scripts/",
-      "public/"
-    ],
-    "ext": "js,html,css",
-    "ignore": [
-      "node_modules/",
-      "uploads/",
-      "logs/",
-      "*.db",
-      "*.db-journal"
-    ],
-    "delay": 500,
-    "events": {
-      "restart": "echo '🔄 Server restarted due to file changes'"
-    },
-    "env": {
-      "NODE_ENV": "development"
-    }
+  "watch": [
+    "server.js",
+    "scripts/"
+  ],
+  "ext": "js",
+  "ignore": [
+    "node_modules/",
+    "uploads/",
+    "logs/",
+    "public/",
+    "*.db",
+    "*.db-journal"
+  ],
+  "delay": 1000,
+  "events": {
+    "restart": "echo '🔄 Server restarted due to backend changes'"
+  },
+  "env": {
+    "NODE_ENV": "development"
   }
+}

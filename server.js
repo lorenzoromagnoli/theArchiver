@@ -24,27 +24,175 @@ const server = http.createServer(app);
 
 // Live reload WebSocket server (development only)
 let wss = null;
+
 if (isDevelopment) {
-    wss = new WebSocket.Server({ server });
+    console.log('🔄 Setting up live reload in development mode...');
     
-    wss.on('connection', (ws) => {
-        console.log('🔄 Live reload client connected');
+    wss = new WebSocket.Server({ 
+        server,
+        path: '/live-reload'
+    });
+    
+    wss.on('connection', (ws, request) => {
+        console.log('🔄 Live reload client connected from:', request.connection.remoteAddress);
+        
+        // Send immediate confirmation
+        ws.send('connected');
+        
+        ws.on('message', (message) => {
+            console.log('🔄 Received message from client:', message.toString());
+        });
         
         ws.on('close', () => {
             console.log('🔄 Live reload client disconnected');
         });
+        
+        ws.on('error', (error) => {
+            console.log('🔄 WebSocket error:', error);
+        });
+        
+        // Send a ping every 30 seconds to keep connection alive
+        const interval = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.ping();
+            } else {
+                clearInterval(interval);
+            }
+        }, 30000);
     });
     
-    // Function to trigger reload
+    // FIRST: Define the triggerReload function
     global.triggerReload = () => {
+        const clientCount = wss ? wss.clients.size : 0;
+        console.log(`🔄 Broadcasting reload to ${clientCount} connected clients`);
+        
+        if (clientCount === 0) {
+            console.log('⚠️  No clients connected to live reload');
+            return;
+        }
+        
         if (wss) {
             wss.clients.forEach(client => {
                 if (client.readyState === WebSocket.OPEN) {
+                    console.log('📡 Sending reload signal to client');
                     client.send('reload');
                 }
             });
-            console.log('🔄 Triggered live reload');
         }
+    };
+    
+    // THEN: Set up file watching (now triggerReload is available)
+    const fs = require('fs');
+    const path = require('path');
+    
+    const publicDir = path.join(__dirname, 'public');
+    console.log('👀 Setting up native fs.watch for:', publicDir);
+    
+    const watchers = [];
+    
+    // Function to watch a directory recursively
+    function watchDirectory(dir) {
+        try {
+            console.log(`📁 Watching directory: ${dir}`);
+            
+            const watcher = fs.watch(dir, { recursive: true }, (eventType, filename) => {
+                if (!filename) return;
+                
+                const fullPath = path.join(dir, filename);
+                const relativePath = path.relative(__dirname, fullPath);
+                
+                // Filter out files we don't care about
+                if (filename.includes('node_modules') || 
+                    filename.includes('uploads') || 
+                    filename.includes('.git') ||
+                    filename.includes('.DS_Store') ||
+                    filename === 'live-reload.js') {
+                    return;
+                }
+                
+                // Only watch specific file types
+                const ext = path.extname(filename).toLowerCase();
+                if (!['.html', '.css', '.js'].includes(ext)) {
+                    return;
+                }
+                
+                console.log(`📁 File ${eventType}: ${relativePath}`);
+                
+                // Debounce rapid changes
+                clearTimeout(global.reloadTimeout);
+                global.reloadTimeout = setTimeout(() => {
+                    console.log(`🚀 Triggering reload for: ${relativePath}`);
+                    // This should now work since triggerReload is defined above
+                    global.triggerReload();
+                }, 300);
+            });
+            
+            watchers.push(watcher);
+            
+            watcher.on('error', (error) => {
+                console.error(`❌ Error watching ${dir}:`, error.message);
+            });
+            
+        } catch (error) {
+            console.error(`❌ Could not watch directory ${dir}:`, error.message);
+        }
+    }
+    
+    // Watch the public directory
+    watchDirectory(publicDir);
+    
+    // Also watch subdirectories
+    const subdirs = ['js', 'css', 'images'].map(sub => path.join(publicDir, sub));
+    subdirs.forEach(subdir => {
+        if (fs.existsSync(subdir)) {
+            watchDirectory(subdir);
+        }
+    });
+    
+    console.log('✅ Native file watcher initialized');
+    
+    // Manual trigger function for testing
+    global.manualReload = () => {
+        console.log('🔧 Manual reload triggered from server');
+        global.triggerReload();
+    };
+    
+    // Test function
+    global.testFileChange = () => {
+        const testFile = path.join(publicDir, 'styles.css');
+        console.log('🧪 Testing file change detection...');
+        
+        const testComment = `\n/* Test ${Date.now()} */`;
+        
+        try {
+            fs.appendFileSync(testFile, testComment);
+            console.log('✅ Test change made to styles.css');
+        } catch (error) {
+            console.error('❌ Could not test file change:', error.message);
+        }
+    };
+    
+    // Cleanup on exit
+    process.on('exit', () => {
+        watchers.forEach(watcher => {
+            try {
+                watcher.close();
+            } catch (e) {
+                // Ignore cleanup errors
+            }
+        });
+    });
+    
+    console.log('💡 Debug commands available:');
+    console.log('   - global.manualReload() // Trigger reload manually');
+    console.log('   - global.testFileChange() // Test file change detection');
+    
+} else {
+    console.log('🔄 Live reload disabled in production mode');
+    
+    // Define empty function for production
+    global.triggerReload = () => {
+        console.log('🔄 Live reload not available in production');
     };
 }
 
